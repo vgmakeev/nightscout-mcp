@@ -113,6 +113,7 @@ def calculate_stats(sgv_values: list[int]) -> dict | None:
         "avg": round(avg, 1),
         "avg_formatted": format_glucose_short(avg),
         "std_dev": round(std_dev, 1),
+        "std_dev_formatted": format_glucose_short(std_dev),
         "cv": round(cv, 1),
         "min": min(sgv_values),
         "max": max(sgv_values),
@@ -489,7 +490,7 @@ async def analyze(from_date: str, to_date: str | None, tir_goal: int) -> list[Te
 📈 Key Metrics:
 • Average glucose: {stats['avg_formatted']}
 • Min/Max: {format_glucose_short(stats['min'])}–{format_glucose_short(stats['max'])}
-• Standard deviation: {stats['std_dev']:.1f}
+• Standard deviation: {stats['std_dev_formatted']}
 • CV: {stats['cv']}% {cv_status}
 • Estimated HbA1c: {stats['a1c']}%
 
