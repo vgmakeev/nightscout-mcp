@@ -1,0 +1,35 @@
+[project]
+name = "nightscout-mcp"
+version = "1.0.0"
+description = "MCP server for Nightscout CGM data"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Vladimir Makeev" }]
+requires-python = ">=3.10"
+keywords = ["mcp", "nightscout", "cgm", "diabetes", "glucose"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+nightscout-mcp = "nightscout_mcp:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nightscout_mcp"]
+
+[dependency-groups]
+dev = []

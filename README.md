@@ -1,78 +1,58 @@
 # Nightscout MCP Server
 
-MCP сервер для доступа к данным непрерывного мониторинга глюкозы (CGM) из Nightscout.
+Access your CGM data from [Nightscout](https://nightscout.github.io/) in AI assistants like Claude, Cursor, etc.
 
-## Возможности
-
-- 🩸 **glucose_current** — текущий уровень сахара
-- 📊 **glucose_history** — история измерений за период
-- 📈 **analyze** — анализ гликемии с расчётом TIR, CV, HbA1c
-- 📅 **analyze_monthly** — помесячный анализ за год
-- 💉 **treatments** — записи о лечении (инсулин, углеводы)
-- ⚙️ **status** — статус сервера Nightscout
-- 📱 **devices** — статус подключённых устройств
-
-## Установка
+## Quick Start
 
 ```bash
-npm install
+uvx nightscout-mcp
 ```
 
-## Настройка
+## Setup
 
-Добавьте в `~/.cursor/mcp.json`:
+Add to your MCP config (e.g. `~/.cursor/mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "nightscout": {
-      "command": "node",
-      "args": ["~/.dev/nightscout-mcp/index.js"],
+      "command": "uvx",
+      "args": ["nightscout-mcp"],
       "env": {
-        "NIGHTSCOUT_URL": "https://YOUR_TOKEN@your-site.nightscout.com",
-        "NIGHTSCOUT_API_SECRET": "your-api-secret"
+        "NIGHTSCOUT_URL": "https://YOUR_TOKEN@your-site.nightscout.com"
       }
     }
   }
 }
 ```
 
-### Переменные окружения
+### Environment Variables
 
-| Переменная | Описание |
-|------------|----------|
-| `NIGHTSCOUT_URL` | URL Nightscout (может включать токен: `https://token@site.com`) |
-| `NIGHTSCOUT_API_SECRET` | API Secret (опционально, если не используется токен в URL) |
+| Variable | Description |
+|----------|-------------|
+| `NIGHTSCOUT_URL` | Your Nightscout URL. Can include token: `https://token@site.com` |
+| `NIGHTSCOUT_API_SECRET` | API secret (optional if using token in URL) |
 
-## Использование
+## Tools
 
-После подключения в Cursor доступны команды:
+| Tool | Description |
+|------|-------------|
+| `glucose_current` | Current glucose reading |
+| `glucose_history` | History for last N hours |
+| `analyze` | TIR, CV, HbA1c for any date range |
+| `analyze_monthly` | Monthly breakdown for a year |
+| `treatments` | Insulin and carbs log |
+| `status` | Nightscout server status |
+| `devices` | Pump, CGM, uploader status |
 
-```
-Какой у меня сейчас сахар?
-Покажи историю сахара за последние 6 часов
-Проанализируй мою гликемию за последние 24 часа
-Проанализируй мою гликемию за 2025 год по месяцам
-Какие были болюсы за сегодня?
-```
+## Examples
 
-## Метрики анализа
+Ask your AI assistant:
+- "What's my current glucose?"
+- "Show my glucose history for the last 6 hours"
+- "Analyze my glucose control for December 2025"
+- "Give me a monthly breakdown for 2025"
 
-- **TIR (Time in Range)** — время в целевом диапазоне
-- **CV (Coefficient of Variation)** — коэффициент вариации (цель <36%)
-- **Estimated HbA1c** — расчётный гликированный гемоглобин
-
-## Целевые диапазоны (строгий TIR)
-
-| Диапазон | ммоль/л | mg/dL | Цель |
-|----------|---------|-------|------|
-| Тяжёлая гипо | <3.0 | <54 | <1% |
-| Гипогликемия | 3.0-3.9 | 54-70 | <4% |
-| **В цели** | **3.9-7.8** | **70-140** | **≥85%** |
-| Выше цели | 7.8-10.0 | 140-180 | — |
-| Высокий | 10.0-13.9 | 180-250 | — |
-| Очень высокий | >13.9 | >250 | <5% |
-
-## Лицензия
+## License
 
 MIT
