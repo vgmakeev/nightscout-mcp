@@ -13,6 +13,28 @@ from mcp.types import Tool, TextContent
 NIGHTSCOUT_URL = os.environ.get("NIGHTSCOUT_URL", "")
 NIGHTSCOUT_API_SECRET = os.environ.get("NIGHTSCOUT_API_SECRET", "")
 
+# Glucose units: "mgdl" or "mmol"
+GLUCOSE_UNITS = os.environ.get("GLUCOSE_UNITS", "mmol").lower()
+
+# TIR range from environment (in mg/dL, will convert if mmol specified)
+def parse_glucose_value(env_var: str, default_mgdl: float) -> float:
+    """Parse glucose value from env, auto-detect units."""
+    val = os.environ.get(env_var, "")
+    if not val:
+        return default_mgdl
+    try:
+        num = float(val)
+        # If value < 30, assume it's mmol/L and convert to mg/dL
+        if num < 30:
+            return num * 18.0182
+        return num
+    except ValueError:
+        return default_mgdl
+
+# TIR range: default 70-140 mg/dL (3.9-7.8 mmol/L)
+GLUCOSE_LOW = parse_glucose_value("GLUCOSE_LOW", 70)   # 3.9 mmol/L
+GLUCOSE_HIGH = parse_glucose_value("GLUCOSE_HIGH", 140)  # 7.8 mmol/L
+
 # Direction arrows
 DIRECTION_ARROWS = {
     "DoubleUp": "⇈",
@@ -25,11 +47,6 @@ DIRECTION_ARROWS = {
     "NOT COMPUTABLE": "?",
     "RATE OUT OF RANGE": "⚠️",
 }
-
-# Strict TIR range: 70-140 mg/dL (3.9-7.8 mmol/L)
-TIR_LOW = 70
-TIR_HIGH = 140
-
 
 def parse_nightscout_url(url_str: str) -> dict:
     """Parse Nightscout URL to extract credentials."""
@@ -44,9 +61,30 @@ def parse_nightscout_url(url_str: str) -> dict:
         return {"base_url": url_str, "username": "", "password": ""}
 
 
-def mgdl_to_mmol(mgdl: float) -> str:
+def mgdl_to_mmol(mgdl: float) -> float:
     """Convert mg/dL to mmol/L."""
-    return f"{mgdl / 18.0182:.1f}"
+    return mgdl / 18.0182
+
+def format_glucose(mgdl: float) -> str:
+    """Format glucose value based on configured units."""
+    if GLUCOSE_UNITS == "mgdl":
+        return f"{int(round(mgdl))} mg/dL"
+    else:
+        return f"{mgdl_to_mmol(mgdl):.1f} mmol/L"
+
+def format_glucose_short(mgdl: float) -> str:
+    """Format glucose value (short, no units)."""
+    if GLUCOSE_UNITS == "mgdl":
+        return str(int(round(mgdl)))
+    else:
+        return f"{mgdl_to_mmol(mgdl):.1f}"
+
+def get_tir_range_label() -> str:
+    """Get TIR range label in configured units."""
+    if GLUCOSE_UNITS == "mgdl":
+        return f"{int(GLUCOSE_LOW)}-{int(GLUCOSE_HIGH)} mg/dL"
+    else:
+        return f"{mgdl_to_mmol(GLUCOSE_LOW):.1f}-{mgdl_to_mmol(GLUCOSE_HIGH):.1f} mmol/L"
 
 
 def calculate_stats(sgv_values: list[int]) -> dict | None:
@@ -60,17 +98,20 @@ def calculate_stats(sgv_values: list[int]) -> dict | None:
     std_dev = variance ** 0.5
     cv = (std_dev / avg * 100) if avg > 0 else 0
     
-    very_low = sum(1 for v in sgv_values if v < 54)
-    low = sum(1 for v in sgv_values if 54 <= v < 70)
-    in_range = sum(1 for v in sgv_values if TIR_LOW <= v <= TIR_HIGH)
-    above_target = sum(1 for v in sgv_values if 140 < v <= 180)
-    high = sum(1 for v in sgv_values if 180 < v <= 250)
-    very_high = sum(1 for v in sgv_values if v > 250)
+    # Fixed ranges in mg/dL
+    very_low = sum(1 for v in sgv_values if v < 54)           # <3.0 mmol/L
+    low = sum(1 for v in sgv_values if 54 <= v < 70)          # 3.0-3.9 mmol/L
+    # TIR uses configurable range
+    in_range = sum(1 for v in sgv_values if GLUCOSE_LOW <= v <= GLUCOSE_HIGH)
+    # Above target: from GLUCOSE_HIGH to 180 mg/dL (10 mmol/L)
+    above_target = sum(1 for v in sgv_values if GLUCOSE_HIGH < v <= 180)
+    high = sum(1 for v in sgv_values if 180 < v <= 250)       # 10.0-13.9 mmol/L
+    very_high = sum(1 for v in sgv_values if v > 250)         # >13.9 mmol/L
     
     return {
         "count": n,
         "avg": round(avg, 1),
-        "avg_mmol": mgdl_to_mmol(avg),
+        "avg_formatted": format_glucose_short(avg),
         "std_dev": round(std_dev, 1),
         "cv": round(cv, 1),
         "min": min(sgv_values),
@@ -370,10 +411,12 @@ async def glucose_current() -> list[TextContent]:
     e = entries[0]
     arrow = DIRECTION_ARROWS.get(e.get("direction", ""), e.get("direction", ""))
     dt = datetime.fromtimestamp(e["date"] / 1000, tz=timezone.utc)
+    delta = e.get('delta', 0)
+    delta_formatted = format_glucose_short(abs(delta)) if GLUCOSE_UNITS == "mmol" else str(int(delta))
     
-    text = f"""🩸 Current glucose: {e['sgv']} mg/dL ({mgdl_to_mmol(e['sgv'])} mmol/L) {arrow}
+    text = f"""🩸 Current glucose: {format_glucose(e['sgv'])} {arrow}
 📅 Time: {dt.strftime('%Y-%m-%d %H:%M')} UTC
-📈 Delta: {'+' if e.get('delta', 0) >= 0 else ''}{e.get('delta', 0)} mg/dL
+📈 Delta: {'+' if delta >= 0 else '-'}{delta_formatted}
 📱 Device: {e.get('device', 'N/A')}"""
     
     return [TextContent(type="text", text=text)]
@@ -393,9 +436,9 @@ async def glucose_history(hours: int, count: int) -> list[TextContent]:
     text = f"""📊 Glucose history for {hours}h ({len(entries)} readings)
 
 📈 Statistics:
-• Average: {stats['avg']} mg/dL ({stats['avg_mmol']} mmol/L)
-• Min/Max: {stats['min']}–{stats['max']} mg/dL
-• TIR (3.9-7.8 mmol): {stats['tir']}%
+• Average: {stats['avg_formatted']}
+• Min/Max: {format_glucose_short(stats['min'])}–{format_glucose_short(stats['max'])}
+• TIR ({get_tir_range_label()}): {stats['tir']}%
 • CV: {stats['cv']}%
 
 📋 Recent readings:"""
@@ -403,7 +446,7 @@ async def glucose_history(hours: int, count: int) -> list[TextContent]:
     for e in entries[:min(count, 15)]:
         dt = datetime.fromtimestamp(e["date"] / 1000, tz=timezone.utc)
         arrow = DIRECTION_ARROWS.get(e.get("direction", ""), "")
-        text += f"\n• {dt.strftime('%m-%d %H:%M')}: {e['sgv']} {arrow} ({mgdl_to_mmol(e['sgv'])} mmol/L)"
+        text += f"\n• {dt.strftime('%m-%d %H:%M')}: {format_glucose_short(e['sgv'])} {arrow}"
     
     if len(entries) > 15:
         text += f"\n... and {len(entries) - 15} more readings"
@@ -439,22 +482,24 @@ async def analyze(from_date: str, to_date: str | None, tir_goal: int) -> list[Te
     tir_status = "✅" if stats["tir"] >= tir_goal else "⚠️" if stats["tir"] >= 70 else "❌"
     cv_status = "✅" if stats["cv"] <= 33 else "⚠️" if stats["cv"] <= 36 else "❌"
     
+    tir_label = get_tir_range_label()
+    
     text = f"""📊 Glucose Analysis: {from_dt.strftime('%Y-%m-%d')} — {to_dt.strftime('%Y-%m-%d')} ({days} days, {stats['count']:,} readings)
 
 📈 Key Metrics:
-• Average glucose: {stats['avg']} mg/dL ({stats['avg_mmol']} mmol/L)
-• Min/Max: {stats['min']}–{stats['max']} mg/dL
-• Standard deviation: {stats['std_dev']} mg/dL
+• Average glucose: {stats['avg_formatted']}
+• Min/Max: {format_glucose_short(stats['min'])}–{format_glucose_short(stats['max'])}
+• Standard deviation: {stats['std_dev']:.1f}
 • CV: {stats['cv']}% {cv_status}
 • Estimated HbA1c: {stats['a1c']}%
 
 🎯 Time in Ranges:
-• 🔴 Severe hypo (<3.0): {stats['very_low_pct']}% (goal <1%)
-• 🟠 Hypoglycemia (3.0-3.9): {stats['low_pct']}% (goal <4%)
-• 🟢 In target (3.9-7.8): {stats['tir']}% {tir_status} (goal ≥{tir_goal}%)
-• 🟡 Above target (7.8-10.0): {stats['above_target_pct']}%
-• 🟠 High (10.0-13.9): {stats['high_pct']}%
-• 🔴 Very high (>13.9): {stats['very_high_pct']}% (goal <5%)
+• 🔴 Severe hypo (<3.0 mmol): {stats['very_low_pct']}% (goal <1%)
+• 🟠 Hypoglycemia (3.0-3.9 mmol): {stats['low_pct']}% (goal <4%)
+• 🟢 In target ({tir_label}): {stats['tir']}% {tir_status} (goal ≥{tir_goal}%)
+• 🟡 Above target: {stats['above_target_pct']}%
+• 🟠 High (10.0-13.9 mmol): {stats['high_pct']}%
+• 🔴 Very high (>13.9 mmol): {stats['very_high_pct']}% (goal <5%)
 
 💡 Assessment:"""
     
@@ -477,9 +522,11 @@ async def analyze_monthly(year: int, from_month: int, to_month: int, tir_goal: i
     month_names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     results = []
     
+    tir_label = get_tir_range_label()
+    
     text = f"📊 Glucose Analysis for {year} (TIR goal: {tir_goal}%)\n"
     text += "=" * 80 + "\n"
-    text += "Month │  TIR (3.9-7.8)  │ Avg mmol │   CV   │  A1c  │ Readings\n"
+    text += f"Month │  TIR ({tir_label})  │  Avg  │   CV   │  A1c  │ Readings\n"
     text += "-" * 80 + "\n"
     
     for month in range(from_month, to_month + 1):
@@ -501,7 +548,7 @@ async def analyze_monthly(year: int, from_month: int, to_month: int, tir_goal: i
                 results.append({"month": month, "stats": stats})
                 tir_emoji = "✅" if stats["tir"] >= tir_goal else "⚠️" if stats["tir"] >= 70 else "❌"
                 cv_emoji = "✅" if stats["cv"] <= 33 else "⚠️" if stats["cv"] <= 36 else "❌"
-                text += f"{month_names[month]:5} │ {stats['tir']:6.1f}% {tir_emoji}    │ {stats['avg_mmol']:>5} │ {stats['cv']:5.1f}% {cv_emoji} │ {stats['a1c']:4.1f}% │ {stats['count']:>8,}\n"
+                text += f"{month_names[month]:5} │ {stats['tir']:6.1f}% {tir_emoji}    │ {stats['avg_formatted']:>5} │ {stats['cv']:5.1f}% {cv_emoji} │ {stats['a1c']:4.1f}% │ {stats['count']:>8,}\n"
             else:
                 text += f"{month_names[month]:5} │ No data\n"
         except Exception as e:
@@ -520,8 +567,8 @@ async def analyze_monthly(year: int, from_month: int, to_month: int, tir_goal: i
         
         text += f"\n📈 SUMMARY ({len(results)} months, {total_count:,} readings)\n"
         text += "-" * 60 + "\n"
-        text += f"🎯 Average TIR (3.9-7.8): {avg_tir:.1f}% — {tir_status}\n"
-        text += f"📊 Average glucose: {mgdl_to_mmol(avg_glucose)} mmol/L\n"
+        text += f"🎯 Average TIR ({tir_label}): {avg_tir:.1f}% — {tir_status}\n"
+        text += f"📊 Average glucose: {format_glucose(avg_glucose)}\n"
         text += f"📉 Average CV: {avg_cv:.1f}% — {'✅ Stable' if avg_cv <= 33 else '📊 OK' if avg_cv <= 36 else '⚠️ High'}\n"
         text += f"🩸 Estimated HbA1c: {avg_a1c:.1f}%\n"
         

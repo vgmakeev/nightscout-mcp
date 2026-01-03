@@ -5,7 +5,7 @@ Access your CGM data from [Nightscout](https://nightscout.github.io/) in AI assi
 ## Quick Start
 
 ```bash
-uvx nightscout-mcp
+uvx --from git+https://github.com/vgmakeev/nightscout-mcp nightscout-mcp
 ```
 
 ## Setup
@@ -17,7 +17,7 @@ Add to your MCP config (e.g. `~/.cursor/mcp.json`):
   "mcpServers": {
     "nightscout": {
       "command": "uvx",
-      "args": ["nightscout-mcp"],
+      "args": ["--from", "git+https://github.com/vgmakeev/nightscout-mcp", "nightscout-mcp"],
       "env": {
         "NIGHTSCOUT_URL": "https://YOUR_TOKEN@your-site.nightscout.com"
       }
@@ -26,12 +26,32 @@ Add to your MCP config (e.g. `~/.cursor/mcp.json`):
 }
 ```
 
-### Environment Variables
+## Configuration
 
-| Variable | Description |
-|----------|-------------|
-| `NIGHTSCOUT_URL` | Your Nightscout URL. Can include token: `https://token@site.com` |
-| `NIGHTSCOUT_API_SECRET` | API secret (optional if using token in URL) |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NIGHTSCOUT_URL` | Nightscout URL (can include token: `https://token@site.com`) | Required |
+| `NIGHTSCOUT_API_SECRET` | API secret (optional if using token in URL) | - |
+| `GLUCOSE_UNITS` | Display units: `mmol` or `mgdl` | `mmol` |
+| `GLUCOSE_LOW` | TIR lower bound (auto-detects units: <30 = mmol) | `3.9` (70 mg/dL) |
+| `GLUCOSE_HIGH` | TIR upper bound (auto-detects units: <30 = mmol) | `7.8` (140 mg/dL) |
+
+### Example with custom TIR range
+
+```json
+{
+  "nightscout": {
+    "command": "uvx",
+    "args": ["--from", "git+https://github.com/vgmakeev/nightscout-mcp", "nightscout-mcp"],
+    "env": {
+      "NIGHTSCOUT_URL": "https://TOKEN@your-site.nightscout.com",
+      "GLUCOSE_UNITS": "mmol",
+      "GLUCOSE_LOW": "4.0",
+      "GLUCOSE_HIGH": "10.0"
+    }
+  }
+}
+```
 
 ## Tools
 
