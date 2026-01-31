@@ -35,6 +35,10 @@ def parse_glucose_value(env_var: str, default_mgdl: float) -> float:
 GLUCOSE_LOW = parse_glucose_value("GLUCOSE_LOW", 70)   # 3.9 mmol/L
 GLUCOSE_HIGH = parse_glucose_value("GLUCOSE_HIGH", 140)  # 7.8 mmol/L
 
+# Minimum valid glucose reading (below this is sensor error)
+# 40 mg/dL = 2.2 mmol/L - readings below this are almost certainly sensor artifacts
+GLUCOSE_MIN_VALID = 40  # mg/dL
+
 # Direction arrows
 DIRECTION_ARROWS = {
     "DoubleUp": "⇈",
@@ -85,6 +89,14 @@ def get_tir_range_label() -> str:
         return f"{int(GLUCOSE_LOW)}-{int(GLUCOSE_HIGH)} mg/dL"
     else:
         return f"{mgdl_to_mmol(GLUCOSE_LOW):.1f}-{mgdl_to_mmol(GLUCOSE_HIGH):.1f} mmol/L"
+
+
+def filter_valid_sgv(entries: list) -> list[int]:
+    """Extract valid SGV values, filtering out sensor errors."""
+    return [
+        e["sgv"] for e in entries 
+        if e.get("sgv") and e["sgv"] >= GLUCOSE_MIN_VALID
+    ]
 
 
 def calculate_stats(sgv_values: list[int]) -> dict | None:
@@ -441,10 +453,10 @@ async def glucose_history(hours: int, count: int) -> list[TextContent]:
     if not entries:
         return [TextContent(type="text", text=f"No data for the last {hours} hours")]
     
-    sgv_values = [e["sgv"] for e in entries if e.get("sgv")]
+    sgv_values = filter_valid_sgv(entries)
     stats = calculate_stats(sgv_values)
     
-    text = f"""📊 Glucose history for {hours}h ({len(entries)} readings)
+    text = f"""📊 Glucose history for {hours}h ({len(sgv_values)} readings)
 
 📈 Statistics:
 • Average: {stats['avg_formatted']}
@@ -454,13 +466,15 @@ async def glucose_history(hours: int, count: int) -> list[TextContent]:
 
 📋 Recent readings:"""
     
-    for e in entries[:min(count, 15)]:
+    # Filter out sensor errors for display
+    valid_entries = [e for e in entries if e.get("sgv") and e["sgv"] >= GLUCOSE_MIN_VALID]
+    for e in valid_entries[:min(count, 15)]:
         dt = datetime.fromtimestamp(e["date"] / 1000, tz=timezone.utc)
         arrow = DIRECTION_ARROWS.get(e.get("direction", ""), "")
         text += f"\n• {dt.strftime('%m-%d %H:%M')}: {format_glucose_short(e['sgv'])} {arrow}"
     
-    if len(entries) > 15:
-        text += f"\n... and {len(entries) - 15} more readings"
+    if len(valid_entries) > 15:
+        text += f"\n... and {len(valid_entries) - 15} more readings"
     
     return [TextContent(type="text", text=text)]
 
@@ -483,7 +497,7 @@ async def analyze(from_date: str, to_date: str | None, tir_goal: int) -> list[Te
     if len(entries) < 10:
         return [TextContent(type="text", text="Not enough data for analysis")]
     
-    sgv_values = [e["sgv"] for e in entries if e.get("sgv")]
+    sgv_values = filter_valid_sgv(entries)
     stats = calculate_stats(sgv_values)
     
     from_dt = datetime.fromtimestamp(start_ts / 1000, tz=timezone.utc)
@@ -552,7 +566,7 @@ async def analyze_monthly(year: int, from_month: int, to_month: int, tir_goal: i
         
         try:
             entries = await client.fetch_entries_in_range(start_ts, end_ts)
-            sgv_values = [e["sgv"] for e in entries if e.get("sgv")]
+            sgv_values = filter_valid_sgv(entries)
             stats = calculate_stats(sgv_values)
             
             if stats and stats["count"] > 0:
